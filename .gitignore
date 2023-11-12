@@ -1,0 +1,19 @@
+data
+submissions
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyCharm
+.idea
+.pytest_cache
+__pycache__
+
+# VS Code
+.vscode
+.DS_Store
+
+# virtualenv
+.venv
