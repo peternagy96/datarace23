@@ -30,12 +30,13 @@ class Dataset(ABC):
         self.target = target
 
         self.train_df = pd.read_csv("data/training_data.csv")
-        self.basic_transformations()
-        self.do_feature_engineering()
-        self.encoded_train_df = self.encode(self.train_df)
         self.test_df = self.create_test_df(
             pd.read_csv("data/data_submission_example.csv")
         )
+        self.basic_transformations()
+        self.do_feature_engineering()
+        self.encoded_train_df = self.encode(self.train_df)
+
 
     @property
     def parameters(self) -> dict:
@@ -146,7 +147,7 @@ class Dataset(ABC):
         """Implement all feature engineering steps here."""
         raise NotImplementedError
 
-    def encode(self, df: pd.DataFrame, keep_ids: bool = False) -> pd.DataFrame:
+    def encode(self, df: pd.DataFrame, keep_ids: bool = False, label: bool = True) -> pd.DataFrame:
         """Implements all feature encodings"""
 
         borrower_id = ["BORROWER_ID"] if keep_ids else []
@@ -157,8 +158,9 @@ class Dataset(ABC):
             + self.le_features
             + self.log_transform_features
             + self.numerical_features
-            + [self.target]
         )
+        if label:
+            columns += [self.target]
         df = df[columns]
 
         for feature in self.ohe_features:
@@ -191,7 +193,7 @@ class Dataset(ABC):
 
     def log_transform(self, df: pd.DataFrame, feature: str) -> pd.DataFrame:
         """Log transform numerical features."""
-        df[feature] = df[feature].apply(lambda x: np.where(x > 0, np.log(x), 0))
+        df[feature] = df[feature].apply(lambda x: np.where(x > 0, np.log1p(x), 0))
         return df
 
     def create_test_df(self, df):
@@ -200,4 +202,5 @@ class Dataset(ABC):
         return self.encode(
             self.train_df[self.train_df["BORROWER_ID"].isin(borrower_ids)],
             keep_ids=True,
-        ).drop(columns=[self.target])
+            label=False
+        ).copy()

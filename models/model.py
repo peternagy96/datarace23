@@ -133,9 +133,25 @@ class XGBModel(Model):
 
         return self.test_score
 
+    @staticmethod
+    def _pull_scores(x):
+        if x < 0.3:
+            return 0
+        elif x > 0.95:
+            return 1
+        return x
+
     def predict(self, ds: Dataset):
         df = ds.test_df.copy()
-        df["PRED"] = self.model.predict(df.drop(columns=["BORROWER_ID"]))
+        df["PRED"] = self.model.predict_proba(df.drop(columns=["BORROWER_ID"]))[:, 1]
+
+        # aggregate all credits per borrower, using 1 - (1-p1)*(1-p2)*...*(1-pn)
+        df["PRED"] = df["PRED"].apply(lambda x: 1 - x)
+        df = df.groupby("BORROWER_ID").agg({"PRED": lambda x: 1 - x.prod()}).reset_index()
+
+        # df["PRED"] = df["PRED"].apply(self._pull_scores)
+
+
         return df[["BORROWER_ID", "PRED"]]
 
     def evaluate(self, ds: Dataset):
