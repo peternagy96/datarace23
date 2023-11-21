@@ -17,7 +17,7 @@ class Dataset(ABC):
         categorical_features: list,
         log_transform_features: list,
         numerical_features: list,
-        feature_engineered_cols: list,
+        feature_engineered_cols: list = None,
         target: str = "label",
     ):
         self.save_id = (
@@ -28,7 +28,7 @@ class Dataset(ABC):
         self.categorical_features = categorical_features
         self.log_transform_features = log_transform_features
         self.numerical_features = numerical_features
-        self.feature_engineered_cols = feature_engineered_cols
+        self.feature_engineered_cols = feature_engineered_cols or []
         self.target = target
 
         self.train_df = pd.read_csv("data/training_data.csv")
@@ -49,6 +49,7 @@ class Dataset(ABC):
             "categorical_features": self.categorical_features,
             "log_transform_features": self.log_transform_features,
             "numerical_features": self.numerical_features,
+            "feature_engineered_cols": self.feature_engineered_cols,
             "target": self.target,
         }
 
@@ -97,6 +98,7 @@ class Dataset(ABC):
         obj.categorical_features = parameters["categorical_features"]
         obj.log_transform_features = parameters["log_transform_features"]
         obj.numerical_features = parameters["numerical_features"]
+        obj.feature_engineered_cols = parameters["feature_engineered_cols"]
         obj.target = parameters["target"]
         obj.save_id = save_id
 
@@ -113,7 +115,7 @@ class Dataset(ABC):
     def basic_transformations(self):
         """Implement all basic transformations here."""
         self.convert_to_datetime()
-        # self.keep_only_labelled_credits()
+        self.keep_only_labelled_credits()
         self.create_label()
 
     def convert_to_datetime(self) -> pd.DataFrame:
@@ -147,19 +149,7 @@ class Dataset(ABC):
     @abstractmethod
     def do_feature_engineering(self):
         """Implement all feature engineering steps here."""
-        self.train_df['num_contracts'] = self.train_df.groupby('BORROWER_ID')['CONTRACT_ID'].transform('count')
-        self.train_df['num_borrowers'] = self.train_df.groupby('CONTRACT_ID')['BORROWER_ID'].transform('count')
-        
-        for col in (["CONTRACT_RISK_WEIGHTED_ASSETS", 
-                      "CONTRACT_INSTALMENT_AMOUNT",
-                      "CONTRACT_INSTALMENT_AMOUNT_2",
-                      "CONTRACT_LGD"] + self.log_transform_features):
-
-            self.train_df[f'sum_{col}'] = self.train_df.groupby('BORROWER_ID')[col].transform('sum')
-        
-        self.feature_engineered_cols = [col for col in self.train_df.columns if col.startswith("sum") or col.startswith("num")]
-
-        #raise NotImplementedError
+        raise NotImplementedError
 
     def encode(self, df: pd.DataFrame, keep_ids: bool = False, label: bool = True) -> pd.DataFrame:
         """Implements all feature encodings"""
