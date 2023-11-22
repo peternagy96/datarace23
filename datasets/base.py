@@ -32,7 +32,7 @@ class Dataset(ABC):
         self.target = target
 
         self.train_df = pd.read_csv("data/training_data.csv")
-        self.test_df = self.create_test_df(
+        self.encoded_test_df = self.create_test_df(
             pd.read_csv("data/data_submission_example.csv")
         )
         self.basic_transformations()
@@ -72,6 +72,10 @@ class Dataset(ABC):
             f"data/datasets/{self.__class__.__name__}/{self.save_id}/encoded_train_df.csv",
             index=False,
         )
+        self.encoded_test_df.to_csv(
+            f"data/datasets/{self.__class__.__name__}/{self.save_id}/encoded_test_df.csv",
+            index=False,
+        )
 
         return self.save_id
 
@@ -109,6 +113,9 @@ class Dataset(ABC):
             f"data/datasets/{cls.__name__}/{save_id}/encoded_train_df.csv"
         )
         obj.test_df = pd.read_csv(f"data/datasets/{cls.__name__}/{save_id}/test_df.csv")
+        obj.encoded_test_df = pd.read_csv(
+            f"data/datasets/{cls.__name__}/{save_id}/encoded_test_df.csv"
+        )
 
         return obj
 
@@ -160,6 +167,7 @@ class Dataset(ABC):
             borrower_id
             + self.ohe_features
             + self.le_features
+            + self.categorical_features
             + self.log_transform_features
             + self.numerical_features
             + self.feature_engineered_cols
@@ -181,7 +189,7 @@ class Dataset(ABC):
             df = self.log_transform(df, feature)
 
         for feature in self.numerical_features:
-            df[feature] = df[feature].astype(float)
+            df.loc[:, feature] = df[feature].astype(float)
 
         return df
 
@@ -204,8 +212,9 @@ class Dataset(ABC):
     def create_test_df(self, df):
         """Create a test dataframe with needed, unique borrower IDs and same features as the train_df."""
         borrower_ids = df["BORROWER_ID"].unique()
+        self.test_df = self.train_df[self.train_df["BORROWER_ID"].isin(borrower_ids)]
         return self.encode(
-            self.train_df[self.train_df["BORROWER_ID"].isin(borrower_ids)],
+            self.test_df,
             keep_ids=True,
             label=False
         ).copy()

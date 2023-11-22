@@ -6,6 +6,7 @@ from pathlib import Path
 
 import xgboost as xgb
 from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.metrics import f1_score
 
 from datasets.base import Dataset
 
@@ -130,19 +131,21 @@ class XGBModel(Model):
         self.test_score = self.model.score(X_test, y_test)
         self.X_test = X_test
         print(f"Test score: {self.test_score}")
+        self.f1_score = f1_score(y_test, self.model.predict(X_test))
+        print(f"F1 score: {self.f1_score}")
 
-        return self.test_score
+        return self.train_score[0]
 
     @staticmethod
     def _pull_scores(x):
-        if x < 0.3:
+        if x < 0.01:
             return 0
         elif x > 0.95:
             return 1
         return x
 
     def predict(self, ds: Dataset):
-        df = ds.test_df.copy()
+        df = ds.encoded_test_df.copy()
         df["PRED"] = self.model.predict_proba(df.drop(columns=["BORROWER_ID"]))[:, 1]
 
         # aggregate all credits per borrower, using 1 - (1-p1)*(1-p2)*...*(1-pn)
