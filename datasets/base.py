@@ -17,7 +17,6 @@ class Dataset(ABC):
         categorical_features: list,
         log_transform_features: list,
         numerical_features: list,
-        feature_engineered_cols: list = None,
         target: str = "label",
     ):
         self.save_id = (
@@ -28,15 +27,15 @@ class Dataset(ABC):
         self.categorical_features = categorical_features
         self.log_transform_features = log_transform_features
         self.numerical_features = numerical_features
-        self.feature_engineered_cols = feature_engineered_cols or []
         self.target = target
 
         self.train_df = pd.read_csv("data/training_data.csv")
+        self.basic_transformations()
+        self.train_df = self.do_feature_engineering(self.train_df)
         self.encoded_test_df = self.create_test_df(
             pd.read_csv("data/data_submission_example.csv")
         )
-        self.basic_transformations()
-        self.do_feature_engineering()
+        self.keep_only_labelled_credits()
         self.encoded_train_df = self.encode(self.train_df)
 
 
@@ -49,7 +48,6 @@ class Dataset(ABC):
             "categorical_features": self.categorical_features,
             "log_transform_features": self.log_transform_features,
             "numerical_features": self.numerical_features,
-            "feature_engineered_cols": self.feature_engineered_cols,
             "target": self.target,
         }
 
@@ -102,7 +100,6 @@ class Dataset(ABC):
         obj.categorical_features = parameters["categorical_features"]
         obj.log_transform_features = parameters["log_transform_features"]
         obj.numerical_features = parameters["numerical_features"]
-        obj.feature_engineered_cols = parameters["feature_engineered_cols"]
         obj.target = parameters["target"]
         obj.save_id = save_id
 
@@ -122,7 +119,6 @@ class Dataset(ABC):
     def basic_transformations(self):
         """Implement all basic transformations here."""
         self.convert_to_datetime()
-        self.keep_only_labelled_credits()
         self.create_label()
 
     def convert_to_datetime(self) -> pd.DataFrame:
@@ -154,7 +150,7 @@ class Dataset(ABC):
         )
 
     @abstractmethod
-    def do_feature_engineering(self):
+    def do_feature_engineering(self, df):
         """Implement all feature engineering steps here."""
         raise NotImplementedError
 
@@ -170,7 +166,6 @@ class Dataset(ABC):
             + self.categorical_features
             + self.log_transform_features
             + self.numerical_features
-            + self.feature_engineered_cols
         )
         if label:
             columns += [self.target]
@@ -212,9 +207,9 @@ class Dataset(ABC):
     def create_test_df(self, df):
         """Create a test dataframe with needed, unique borrower IDs and same features as the train_df."""
         borrower_ids = df["BORROWER_ID"].unique()
-        self.test_df = self.train_df[self.train_df["BORROWER_ID"].isin(borrower_ids)]
+        self.test_df = self.train_df[self.train_df["BORROWER_ID"].isin(borrower_ids)].copy()
         return self.encode(
             self.test_df,
             keep_ids=True,
             label=False
-        ).copy()
+        )
