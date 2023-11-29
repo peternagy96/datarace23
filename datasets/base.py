@@ -29,14 +29,14 @@ class Dataset(ABC):
         self.numerical_features = numerical_features
         self.target = target
 
+        self.test_users = pd.read_csv("data/data_submission_example.csv")["BORROWER_ID"].unique()
         self.train_df = pd.read_csv("data/training_data.csv")
         self.basic_transformations()
         self.train_df = self.do_feature_engineering(self.train_df)
-        self.encoded_test_df = self.create_test_df(
-            pd.read_csv("data/data_submission_example.csv")
-        )
+        self.encoded_train_df = self.encode(self.train_df, label=True, keep_ids=True)
+        self.encoded_test_df = self.create_test_df(self.encoded_train_df)
         self.keep_only_labelled_credits()
-        self.encoded_train_df = self.encode(self.train_df)
+        self.encoded_train_df = self.encoded_train_df[~self.encoded_train_df["BORROWER_ID"].isin(self.test_users)].drop(columns=["BORROWER_ID"])
 
 
     @property
@@ -137,11 +137,8 @@ class Dataset(ABC):
         - target is E -> 0
         - is in the first year of the dataset -> 0
         """
-
-        self.train_df = self.train_df[
-            (self.train_df["TARGET_EVENT"] != "-")
-            | (self.train_df["CONTRACT_DATE_OF_LOAN_AGREEMENT"] <= "2016-01-01")
-        ]
+        test_users = self.encoded_test_df["BORROWER_ID"].unique()
+        self.train_df = self.train_df[~self.train_df["BORROWER_ID"].isin(test_users)]
 
     def create_label(self):
         """Create a label column from TARGET_EVENT."""
@@ -206,10 +203,5 @@ class Dataset(ABC):
 
     def create_test_df(self, df):
         """Create a test dataframe with needed, unique borrower IDs and same features as the train_df."""
-        borrower_ids = df["BORROWER_ID"].unique()
-        self.test_df = self.train_df[self.train_df["BORROWER_ID"].isin(borrower_ids)].copy()
-        return self.encode(
-            self.test_df,
-            keep_ids=True,
-            label=False
-        )
+        self.test_df = self.train_df[self.train_df["BORROWER_ID"].isin(self.test_users)].copy()
+        return df[df["BORROWER_ID"].isin(self.test_users)].copy().drop(columns=["label"])
