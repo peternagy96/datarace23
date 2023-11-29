@@ -1,1 +1,1 @@
-from .model import XGBModel
+from .model import XGBModel, CatBoostModel, LGBModel

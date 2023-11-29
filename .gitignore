@@ -17,3 +17,5 @@ __pycache__
 
 # virtualenv
 .venv
+
+catboost_info/

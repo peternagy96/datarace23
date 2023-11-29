@@ -6,7 +6,10 @@ from pathlib import Path
 
 import xgboost as xgb
 from sklearn.model_selection import cross_val_score, train_test_split
+from catboost import CatBoostClassifier
 from sklearn.metrics import f1_score
+import lightgbm as lgb
+import pandas as pd
 
 from datasets.base import Dataset
 
@@ -80,13 +83,56 @@ class Model(ABC):
         return obj
 
     @abstractmethod
-    def fit(self, ds: Dataset, test_split: float = 0.1, cv: int = 5):
+    def _init_model(self):
         pass
 
+    def fit(self, ds: Dataset, test_split: float = 0.1, cv: int = 5):
+        self.train_params = {
+            "test_split": test_split,
+            "cv": cv,
+        }
+        self.dataset_params = ds.parameters
+
+        # fit xgb classifier in a cross validation setting
+        X_train, X_test, y_train, y_test = train_test_split(
+            ds.encoded_train_df.drop(columns=[ds.target]),
+            ds.encoded_train_df[ds.target],
+            test_size=test_split,
+            random_state=42,
+        )
+        self._init_model()
+
+        self.model.fit(X_train, y_train)
+        scores = cross_val_score(self.model, X_train, y_train, cv=cv)
+        self.train_score = [scores.mean(), scores.std()]
+        print(
+            f"Cross-validation scores mean: {self.train_score[0]}, std: {self.train_score[1]}"
+        )
+
+        self.test_score = self.model.score(X_test, y_test)
+        self.X_test = X_test
+        print(f"Test score: {self.test_score}")
+        self.f1_score = f1_score(y_test, self.model.predict(X_test))
+        print(f"F1 score: {self.f1_score}")
+
+        return self.train_score[0]
+
     @abstractmethod
-    def predict(self, ds: Dataset):
-        """Outputs the predictions in the correct format for submission"""
+    def _predict_model(self, ds: Dataset):
+        """Predicts probabilities for each credit in the test set."""
         pass
+
+    def predict(self, ds: Dataset):
+        df = self._predict_model(ds)
+
+        # aggregate all credits per borrower, using 1 - (1-p1)*(1-p2)*...*(1-pn)
+        df["PRED"] = df["PRED"].apply(lambda x: 1 - x)
+        df = df.groupby("BORROWER_ID").agg({"PRED": lambda x: 1 - x.prod()}).reset_index()
+
+        # df["PRED"] = df["PRED"].apply(self._pull_scores)
+
+
+        return df[["BORROWER_ID", "PRED"]]
 
     @abstractmethod
     def evaluate(self, ds: Dataset):
@@ -105,36 +151,10 @@ class XGBModel(Model):
             f"data/models/{self.__class__.__name__}/{self.save_id}/model.json"
         )
 
-    def fit(self, ds: Dataset, test_split: float = 0.1, cv: int = 5):
-        self.train_params = {
-            "test_split": test_split,
-            "cv": cv,
-        }
-        self.dataset_params = ds.parameters
-
-        # fit xgb classifier in a cross validation setting
-        X_train, X_test, y_train, y_test = train_test_split(
-            ds.encoded_train_df.drop(columns=[ds.target]),
-            ds.encoded_train_df[ds.target],
-            test_size=test_split,
-            random_state=42,
-        )
+    def _init_model(self):
         self.model = xgb.XGBClassifier(**self.model_params)
 
-        self.model.fit(X_train, y_train)
-        scores = cross_val_score(self.model, X_train, y_train, cv=cv)
-        self.train_score = [scores.mean(), scores.std()]
-        print(
-            f"Cross-validation scores mean: {self.train_score[0]}, std: {self.train_score[1]}"
-        )
 
-        self.test_score = self.model.score(X_test, y_test)
-        self.X_test = X_test
-        print(f"Test score: {self.test_score}")
-        self.f1_score = f1_score(y_test, self.model.predict(X_test))
-        print(f"F1 score: {self.f1_score}")
-
-        return self.train_score[0]
 
     @staticmethod
     def _pull_scores(x):
@@ -144,40 +164,55 @@ class XGBModel(Model):
             return 1
         return x
 
-    def predict(self, ds: Dataset):
+    def _predict_model(self, ds: Dataset) -> pd.DataFrame:
         df = ds.encoded_test_df.copy()
         df["PRED"] = self.model.predict_proba(df.drop(columns=["BORROWER_ID"]))[:, 1]
-
-        # aggregate all credits per borrower, using 1 - (1-p1)*(1-p2)*...*(1-pn)
-        df["PRED"] = df["PRED"].apply(lambda x: 1 - x)
-        df = df.groupby("BORROWER_ID").agg({"PRED": lambda x: 1 - x.prod()}).reset_index()
-
-        # df["PRED"] = df["PRED"].apply(self._pull_scores)
-
-
-        return df[["BORROWER_ID", "PRED"]]
+        return df
 
     def evaluate(self, ds: Dataset):
         pass
 
 
 class LGBModel(Model):
-    def fit(self, X, y):
-        pass
+    def save_model(self):
+        """save lightgbm model"""
+        self.model.booster_.save_model(
+            f"data/models/{self.__class__.__name__}/{self.save_id}/model.txt"
+        )
+    def load_model(self):
+        self.model = lgb.Booster(model_file=f"data/models/{self.__class__.__name__}/{self.save_id}/model.txt")
 
-    def predict(self, X):
-        pass
+    def _init_model(self):
+        self.model = lgb.LGBMClassifier(**self.model_params)
+
+    def _predict_model(self, ds: Dataset) -> pd.DataFrame:
+        df = ds.encoded_test_df.copy()
+        df["PRED"] = self.model.predict_proba(df.drop(columns=["BORROWER_ID"]))[:, 1]
+        return df
 
     def evaluate(self, X, y):
         pass
 
 
 class CatBoostModel(Model):
-    def fit(self, X, y):
-        pass
+    def save_model(self):
+        self.model.save_model(
+            f"data/models/{self.__class__.__name__}/{self.save_id}/model.json"
+        )
 
-    def predict(self, X):
-        pass
+    def load_model(self):
+        self.model = CatBoostClassifier()
+        self.model.load_model(
+            f"data/models/{self.__class__.__name__}/{self.save_id}/model.json"
+        )
+
+    def _init_model(self):
+        self.model = CatBoostClassifier(**self.model_params)
+
+    def _predict_model(self, ds: Dataset) -> pd.DataFrame:
+        df = ds.encoded_test_df.copy()
+        df["PRED"] = self.model.predict_proba(df.drop(columns=["BORROWER_ID"]))[:, 1]
+        return df
 
     def evaluate(self, X, y):
         pass
